@@ -74,9 +74,7 @@ fn mod_div_s<T: Div<Output = T> + Rem<Output = T> + Copy>(l: T, rd: T, rm: T) ->
 
 fn coordify<T: Into<HPixel>>(col: T) -> (u32, u32) {
     let col: HPixel = col.into();
-    let packed: u32 = col.to_packed();
-    mod_div(packed, 4096)
-    //(col.r as u32 + (col.b as u32 * 256) % 16, col.g as u32 + (col.b as u32 * 256) / 16)
+    (col.r as u32 + (col.b as u32 * 256) % 16, col.g as u32 + (col.b as u32 * 256) / 16)
 }
 
 fn main() {
@@ -211,7 +209,23 @@ diff [first] [second] [lut_bg|<any>|<none>] [print_diff|<any>|<none>] [only_diff
 Green pixels appear for an added color, red for a removed color, white for colors in both databases, black/LUT val for colors in neither.
 You can supply a third argument that defines whether an LUT should be placed for colors in neither database, or a black background. Defaults to an LUT background.
 A fourth argument can be provided to define if new/removed values should be printed. Defaults to no printing.
-Another fifth argument can be specified to define if only the new values should be shown (values in both are set to black).");
+Another fifth argument can be specified to define if only the new values should be shown (values in both are set to black).
+
+detail [database] [color]: Get's the details of a specified color (location on LUT, name of color).");
+        }
+        "detail" => {
+            let col: String = argv.next().expect("No color provided!");
+            println!("Decoding file...");
+            let colors: HashMap<HPixel, String> = hmify(&argv.next().expect("No input file provided!")[..]);
+            let color_packed: u32 = u32::from_str_radix(&col, 16).expect(&format!("{col} is not a valid hex code!"));
+            let color: HPixel = HPixel::from_packed(color_packed);
+            let (x, y) = coordify(color);
+            print!("The color {col} is located at X: {x}, Y: {y}");
+            if let Some(c) = colors.get(&color) {
+                println!(", named \"{c}\".");
+            } else {
+                println!(".");
+            }
         }
         _ => {}
     }
