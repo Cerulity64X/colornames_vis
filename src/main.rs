@@ -1,6 +1,6 @@
-use std::{collections::HashMap, fs, ops::{Div, Rem}};
+use std::{collections::HashMap, fs, ops::{Div, Rem}, env::{Args, args}, fmt::Display};
 
-use bmp::{Image, Pixel, consts::WHITE};
+use bmp::{Image, Pixel, consts::{WHITE, RED, BLACK, LIME}};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 struct HPixel {
@@ -30,6 +30,11 @@ impl HPixel {
         self.r as u32 + self.g as u32 * 256 + self.b as u32 * 32768
     }
 }
+impl Display for HPixel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "#{:X}{:X}{:X}", self.r, self.g, self.b)
+    }
+}
 
 fn hmify(p: &str) -> HashMap<HPixel, String> {
     let input: Vec<Vec<String>> = fs::read_to_string(p).expect(&format!("{p} not found!")[..]).split('\n').map(|st|st.split(',').map(|s|s.to_owned()).collect::<Vec<String>>()).collect();
@@ -44,7 +49,13 @@ fn hmify(p: &str) -> HashMap<HPixel, String> {
             Some(s) => s,
             None => { println!("Color {col} has no name, skipping!"); continue; }
         };
-        let color_packed: u32 = u32::from_str_radix(col, 16).expect(&format!("{col} not a valid hex code!"));
+        let color_packed: u32 = match u32::from_str_radix(col, 16) {
+            Ok(i) => i,
+            Err(_) => {
+                println!("{col} not a valid hex code!");
+                continue;
+            }
+        };
         let color: HPixel = HPixel::from_packed(color_packed);
         //println!("{:?}", color);
         hm.insert(color, name.clone());
@@ -69,23 +80,139 @@ fn coordify<T: Into<HPixel>>(col: T) -> (u32, u32) {
 }
 
 fn main() {
-    println!("Decoding file...");
-    let colors: HashMap<HPixel, String> = hmify("colornames.txt");
-    let mut img: Image = Image::new(4096, 4096);
-    println!("LUT mapping...");
-    for w in 0..16u32 {
-        for h in 0..16u32 {
-            for x in 0..256u32 {
-                for y in 0..256u32 {
-                    let col: HPixel = HPixel { r: x as u8, g: y as u8, b: (w + h * 16) as u8 };
-                    if colors.contains_key(&col) {
-                        img.set_pixel(x + w * 256, y + h * 256, WHITE);
-                    } else {
-                        img.set_pixel(x + w * 256, y + h * 256, col.into());
+    let mut argv: Args = args();
+    argv.next();
+    match &argv.next().expect("No instruction provided!")[..] {
+        "gen" => {
+            println!("Decoding file...");
+            let colors: HashMap<HPixel, String> = hmify(&argv.next().expect("No input file provided!")[..]);
+            let mut img: Image = Image::new(4096, 4096);
+            println!("LUT mapping...");
+            for w in 0..16u32 {
+                for h in 0..16u32 {
+                    for x in 0..256u32 {
+                        for y in 0..256u32 {
+                            let col: HPixel = HPixel { r: x as u8, g: y as u8, b: (w + h * 16) as u8 };
+                            if colors.contains_key(&col) {
+                                img.set_pixel(x + w * 256, y + h * 256, WHITE);
+                            } else {
+                                img.set_pixel(x + w * 256, y + h * 256, col.into());
+                            }
+                        }
                     }
                 }
             }
+            img.save("all_colors.bmp").expect("Could not save output!");
         }
+        "diff" => {
+            println!("Decoding first file...");
+            let colors: HashMap<HPixel, String> = hmify(&argv.next().expect("No first input file provided!")[..]);
+            println!("Decoding second file...");
+            let s_colors: HashMap<HPixel, String> = hmify(&argv.next().expect("No second input file provided!")[..]);
+            let lut_bg: bool = match argv.next() {
+                Some(s) => match &s[..] {
+                    "black_bg" => {
+                        false
+                    }
+                    "lut_bg" => {
+                        true
+                    }
+                    f => {
+                        println!("Unrecognized format {f} (black_bg, lut_bg are correct), defaulting to showing LUT background.");
+                        true
+                    }
+                }
+                None => {
+                    println!("Defaulting to showing LUT background.");
+                    true
+                }
+            };
+            let print_diff: bool = match argv.next() {
+                Some(s) => match &s[..] {
+                    "print_diff" => {
+                        true
+                    }
+                    "no_print" => {
+                        false
+                    }
+                    f => {
+                        println!("Unrecognized format {f} (print_diff, no_print are correct), defaulting to not printing.");
+                        false
+                    }
+                }
+                None => {
+                    println!("Defaulting to not printing.");
+                    false
+                }
+            };
+            let only_diff: bool = match argv.next() {
+                Some(s) => match &s[..] {
+                    "only_diff" => {
+                        true
+                    }
+                    "show_both" => {
+                        false
+                    }
+                    f => {
+                        println!("Unrecognized format {f} (only_diff, show_both are correct), defaulting to showing both.");
+                        false
+                    }
+                }
+                None => {
+                    println!("Defaulting to showing both.");
+                    false
+                }
+            };
+            let mut img: Image = Image::new(4096, 4096);
+            println!("LUT mapping...");
+            for w in 0..16u32 {
+                for h in 0..16u32 {
+                    for x in 0..256u32 {
+                        for y in 0..256u32 {
+                            let col: HPixel = HPixel { r: x as u8, g: y as u8, b: (w + h * 16) as u8 };
+                            let xpos: u32 = x + w * 256;
+                            let ypos: u32 = y + h * 256;
+                            let first_contains: bool = colors.contains_key(&col);
+                            let second_contains: bool = s_colors.contains_key(&col);
+                            if first_contains && second_contains {
+                                // color is in both
+                                img.set_pixel(xpos, ypos, if only_diff {BLACK} else {WHITE});
+                            } else if !first_contains && !second_contains {
+                                // color is in neither
+                                img.set_pixel(xpos, ypos, if lut_bg {col.into()} else {BLACK});
+                            } else if !first_contains && second_contains {
+                                // color was added
+                                img.set_pixel(xpos, ypos, LIME);
+                                if print_diff {
+                                    println!("Color {} is new.", col);
+                                }
+                            } else if first_contains && !second_contains {
+                                // color was removed
+                                img.set_pixel(xpos, ypos, RED);
+                                if print_diff {
+                                    println!("Color {} was removed.", col);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            img.save("diff_colors.bmp").expect("Couldn't save the image!");
+        }
+        "help" => {
+            println!(r"
+Cerulity32K's Colornames.org Visualizer
+
+help: Shows this screen.
+
+gen [database]: Generates a bmp file with the specified colornames.org database.
+
+diff [first] [second] [lut_bg|<any>|<none>] [print_diff|<any>|<none>] [only_diff|<any>|<none>]: Differentiates two colornames.org CSV databases with the second database (supposedly) newer than the first.
+Green pixels appear for an added color, red for a removed color, white for colors in both databases, black/LUT val for colors in neither.
+You can supply a third argument that defines whether an LUT should be placed for colors in neither database, or a black background. Defaults to an LUT background.
+A fourth argument can be provided to define if new/removed values should be printed. Defaults to no printing.
+Another fifth argument can be specified to define if only the new values should be shown (values in both are set to black).");
+        }
+        _ => {}
     }
-    img.save("all_colors.bmp").expect("Couldn't save the image!");
 }
