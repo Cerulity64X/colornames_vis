@@ -1,6 +1,9 @@
-use std::{collections::HashMap, fs, ops::{Div, Rem}, env::{Args, args}, fmt::Display};
+use std::{collections::HashMap, fs, /*ops::{Div, Rem},*/ env::{Args, args}, fmt::Display};
 
 use bmp::{Image, Pixel, consts::{WHITE, RED, BLACK, LIME}};
+use colored::{Colorize, Color};
+use json::JsonValue;
+use rand::{thread_rng, Rng};
 
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord)]
 struct HPixel {
@@ -18,10 +21,15 @@ impl From<Pixel> for HPixel {
         HPixel { r: value.r, g: value.g, b: value.b }
     }
 }
+impl Into<Color> for HPixel {
+    fn into(self) -> Color {
+        Color::TrueColor { r: self.r, g: self.g, b: self.b }
+    }
+}
 #[allow(dead_code)]
 impl HPixel {
     fn from_packed(color_packed: u32) -> HPixel {
-        HPixel { r: (color_packed % 256) as u8, g: ((color_packed / 256) % 256) as u8, b: ((color_packed / 65536) % 256) as u8 }
+        HPixel { b: (color_packed % 256) as u8, g: ((color_packed / 256) % 256) as u8, r: ((color_packed / 65536) % 256) as u8 }
     }
     fn new(r: u8, g: u8, b: u8) -> HPixel {
         HPixel { r, g, b }
@@ -32,7 +40,7 @@ impl HPixel {
 }
 impl Display for HPixel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "#{:X}{:X}{:X}", self.r, self.g, self.b)
+        write!(f, "#{:02X}{:02X}{:02X}", self.r, self.g, self.b)
     }
 }
 
@@ -64,20 +72,34 @@ fn hmify(p: &str) -> HashMap<HPixel, String> {
     hm
 }
 
-fn mod_div<T: Div<Output = T> + Rem<Output = T> + Copy>(l: T, r: T) -> (T, T) {
+/*fn mod_div<T: Div<Output = T> + Rem<Output = T> + Copy>(l: T, r: T) -> (T, T) {
     (l % r, l / r)
 }
 
 fn mod_div_s<T: Div<Output = T> + Rem<Output = T> + Copy>(l: T, rd: T, rm: T) -> (T, T) {
     (l % rd, l / rm)
-}
+}*/
 
 fn coordify<T: Into<HPixel>>(col: T) -> (u32, u32) {
     let col: HPixel = col.into();
-    (col.r as u32 + (col.b as u32 * 256) % 16, col.g as u32 + (col.b as u32 * 256) / 16)
+    (col.r as u32 + (col.b as u32 % 16) * 256, col.g as u32 + (col.b as u32 / 16) * 256)
+}
+
+/// Color formatting macro. Formats x with it's color in bold if y is true, else white.
+macro_rules! cfmt {
+    ($x:ident, $y:expr) => {
+        if $y {$x.to_string().color($x).bold()} else {$x.to_string().white()}
+    };
 }
 
 fn main() {
+    let config: JsonValue = json::parse(&fs::read_to_string("config.json").unwrap_or("{}".to_owned())).unwrap_or(JsonValue::Null);
+    let format_color: bool;
+    if let JsonValue::Boolean(j) = config["format_color"] {
+        format_color = j;
+    } else {
+        format_color = false;
+    }
     let mut argv: Args = args();
     argv.next();
     match &argv.next().expect("No instruction provided!")[..] {
@@ -182,13 +204,13 @@ fn main() {
                                 // color was added
                                 img.set_pixel(xpos, ypos, LIME);
                                 if print_diff {
-                                    println!("Color {} is new.", col);
+                                    println!("Color {} is new.", cfmt!(col, format_color));
                                 }
                             } else if first_contains && !second_contains {
                                 // color was removed
                                 img.set_pixel(xpos, ypos, RED);
                                 if print_diff {
-                                    println!("Color {} was removed.", col);
+                                    println!("Color {} was removed.", cfmt!(col, format_color));
                                 }
                             }
                         }
@@ -211,20 +233,44 @@ You can supply a third argument that defines whether an LUT should be placed for
 A fourth argument can be provided to define if new/removed values should be printed. Defaults to no printing.
 Another fifth argument can be specified to define if only the new values should be shown (values in both are set to black).
 
-detail [database] [color]: Get's the details of a specified color (location on LUT, name of color).");
+detail [database] [color]: Gets the details of a specified color (location on LUT, name of color). Inputs a hex code with nothing prepended or appended.
+
+random [count|<none>]: Outputs a specified numbers of random colors. Defaults to 1 color.
+
+random_detail [database] [count|<none>]: Gets the details of the specified number of colors. Defaults to 1 color.");
         }
         "detail" => {
-            let col: String = argv.next().expect("No color provided!");
             println!("Decoding file...");
             let colors: HashMap<HPixel, String> = hmify(&argv.next().expect("No input file provided!")[..]);
+            let col: String = argv.next().expect("No color provided!");
             let color_packed: u32 = u32::from_str_radix(&col, 16).expect(&format!("{col} is not a valid hex code!"));
             let color: HPixel = HPixel::from_packed(color_packed);
             let (x, y) = coordify(color);
-            print!("The color {col} is located at X: {x}, Y: {y}");
+            print!("The color {} is located at X: {x}, Y: {y}", cfmt!(color, format_color));
             if let Some(c) = colors.get(&color) {
                 println!(", named \"{c}\".");
             } else {
                 println!(".");
+            }
+        }
+        "random" => {
+            for i in 0..u32::from_str_radix(&argv.next().unwrap_or("1".to_string()), 10).expect("Number provided is not a valid decimal integer!") {
+                let color: HPixel = HPixel::from_packed(thread_rng().gen_range(0x0..=0xFFFFFF));
+                println!("Your random color is: {}.", cfmt!(color, format_color));
+            }
+        }
+        "random_detail" => {
+            println!("Decoding file...");
+            let colors: HashMap<HPixel, String> = hmify(&argv.next().expect("No input file provided!")[..]);
+            for i in 0..u32::from_str_radix(&argv.next().unwrap_or("1".to_string()), 10).expect("Number provided is not a valid decimal integer!") {
+                let color: HPixel = HPixel::from_packed(thread_rng().gen_range(0x0..=0xFFFFFF));
+                let (x, y) = coordify(color);
+                print!("The color {} is located at X: {x}, Y: {y}", cfmt!(color, format_color));
+                if let Some(c) = colors.get(&color) {
+                    println!(", named \"{c}\".");
+                } else {
+                    println!(".");
+                }
             }
         }
         _ => {}

@@ -1,9 +1,12 @@
 [package]
 name = "colornames_vis"
-version = "0.3.0"
+version = "0.4"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 bmp = "0.5.0"
+colored = "2.0.0"
+json = "0.12.4"
+rand = "0.8.5"
